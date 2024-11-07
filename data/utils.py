@@ -41,3 +41,38 @@ def truncate_tokens(tokens, max_len):
             break
         else:
             tokens.pop()
+
+
+
+### FROM JOSH:
+
+def split_last(x, shape):
+    """
+    Split the last dimension of a tensor into the specified shape.
+    This is used in multi-head attention to split the last dimension
+    into multiple heads.
+    
+    Args:
+    x (Tensor): Input tensor of shape (B, S, D)
+    shape (tuple): The desired shape for the last dimension, e.g. (num_heads, head_size)
+    
+    Returns:
+    Tensor: Reshaped tensor of shape (B, S, num_heads, head_size)
+    """
+    return x.view(*x.size()[:-1], *shape)
+
+
+def merge_last(x, n_dims):
+    """
+    Merge the last two dimensions of a tensor into one dimension.
+    This is the inverse operation of split_last.
+    
+    Args:
+    x (Tensor): Input tensor of shape (B, S, num_heads, head_size)
+    n_dims (int): Number of dimensions to merge, typically 2
+    
+    Returns:
+    Tensor: Reshaped tensor of shape (B, S, num_heads * head_size)
+    """
+    s = x.size()
+    return x.view(*s[:-n_dims], -1)
