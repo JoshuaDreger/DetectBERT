@@ -10,6 +10,7 @@ from SmaliPreprocess import Smalis2Txt
 import tokenization
 from models import DexBERT, Config
 from dataloader import PreprocessEmbedding
+from tqdm import tqdm  # Import tqdm for progress bars
 
 class SmaliSeqDataset(Dataset):
     def __init__(self, file, tokenize, max_len, pipeline=[]):
@@ -44,7 +45,6 @@ class SmaliSeqDataset(Dataset):
         while len(tokens) < length:
             line = f.readline()
             if not line: # end of file
-                #print("End of file reached while reading tokens")
                 return None, ClassEnd
             if not line.strip(): # blank line (delimiter of documents)
                 if discard_last_and_restart:
@@ -58,7 +58,6 @@ class SmaliSeqDataset(Dataset):
                 continue # skip the smali method name
             if line.strip().startswith('ClassEnd'):
                 ClassEnd = True
-                #print("ClassEnd found while reading tokens")
                 return tokens, ClassEnd
             tokens.extend(self.tokenize(line.strip()))
         return tokens, ClassEnd
@@ -114,7 +113,7 @@ class SmaliSeqDataset(Dataset):
 
 def set_cpu_limit():
     # Set CPU affinity for the current process to a limited number of cores
-    os.sched_setaffinity(0, set(range(48)))  # Limit to CPU cores 0-15 (can be modified)
+    os.sched_setaffinity(0, set(range(32)))  # Limit to CPU cores 0-15 (can be modified)
     # Lower the priority of the current process
     os.nice(19)
 
@@ -150,26 +149,19 @@ def process_hashes_in_parallel(hash_list, tmp_dir, smali_dir, pipeline, hash_dir
 
     with ProcessPoolExecutor(max_workers=max_concurrent_tasks) as executor:
         futures = []
-        
+
         for hash in hash_list:
             future = executor.submit(Hash2ApkEmb, hash.strip(), tmp_dir, smali_dir, pipeline, hash_dir)
             futures.append(future)
+        
+        with tqdm(total=len(futures), desc="Processing hashes") as pbar:
+            for completed_future in as_completed(futures):
+                try:
+                    completed_future.result()  # Wait for the completed task
+                    pbar.update(1)  # Update progress bar
+                except Exception as e:
+                    print(f"Error processing hash: {e}")
 
-            if len(futures) >= max_concurrent_tasks:
-                for completed_future in as_completed(futures):
-                    try:
-                        completed_future.result()  # Wait for the first completed task
-                        futures.remove(completed_future)  # Remove the completed future from the list
-                        break  # Process only one completed task before continuing to add new tasks
-                    except Exception as e:
-                        print(f"Error processing hash: {e}")
-    
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                print(f"Error processing hash: {e}")
-    
     print("Finished parallel processing of hashes")
 
 
@@ -178,14 +170,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--debug', action='store_true', help='Run in debug mode with only one iteration')
     parser.add_argument('--max_workers', type=int, default=1, help='Number of worker threads for processing')
-    parser.add_argument('--src_data', type=str, default='goodware', help='Type of data to process (e.g., goodware, malware)')
+    parser.add_argument('--apk_type', type=str, default='goodware', help='Type of data to process (e.g., goodware, malware)')
+    parser.add_argument('--dataset', type=str, default='dexray', help='Dataset that should be used')
     args = parser.parse_args()
 
-    #debugpy.wait_for_client()  # Optional: Wait for the debugger to attach before continuing
-
-    root_dir = '/work/j.dreger/data/detect_bert/'
-    dataset_root = '/shares/no-backup/j.dreger/dexray-apks'
-    src_data_list = [[f'{args.src_data}_hashes.txt', args.src_data]]
+    root_dir = f'/work/j.dreger/data/{args.dataset}/'
+    dataset_root = f'/mnt/{args.dataset}'
+    apk_list = [[f'{args.dataset}_{args.apk_type}_hashes.txt', args.apk_type]]
     vocab = './vocab.txt'
 
     tokenizer = tokenization.FullTokenizer(vocab_file=vocab, do_lower_case=True)
@@ -193,13 +184,13 @@ if __name__ == '__main__':
 
     pipeline = [PreprocessEmbedding(tokenizer.convert_tokens_to_ids)]
 
-    for pair in src_data_list:
+    for pair in apk_list:
         src_path, data_dir = pair[0], pair[1]
         hash_list = open(osp.join(root_dir, src_path), 'r').readlines()
         if args.debug:
-            hash_list = hash_list[:1]  # Only process one hash in debug mode(osp.join(root_dir, src_path), 'r').readlines()
-        hash_dir = osp.join(dataset_root, data_dir)
-        smali_dir = osp.join(root_dir, 'smali_datasets', data_dir)
+            hash_list = hash_list[:1]  # Only process one hash in debug mode
+        hash_dir = dataset_root
+        smali_dir = osp.join(root_dir, 'smali_datasets', args.dataset, data_dir)
         tmp_dir = osp.join(root_dir, 'tmp', data_dir)
         if not os.path.exists(tmp_dir):
             os.makedirs(tmp_dir)
