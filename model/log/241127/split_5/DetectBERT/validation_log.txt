@@ -1,0 +1,30 @@
+global_step: 50000
+Acc	Pre	Rec	F1	Samp_num
+0.8726	0.8728	0.8726	0.8724	3266
+global_step: 100000
+Acc	Pre	Rec	F1	Samp_num
+0.8827	0.8829	0.8827	0.8825	3266
+global_step: 150000
+Acc	Pre	Rec	F1	Samp_num
+0.8938	0.8945	0.8938	0.8939	3266
+global_step: 200000
+Acc	Pre	Rec	F1	Samp_num
+0.9048	0.9049	0.9048	0.9048	3266
+global_step: 250000
+Acc	Pre	Rec	F1	Samp_num
+0.9106	0.9107	0.9106	0.9106	3266
+global_step: 300000
+Acc	Pre	Rec	F1	Samp_num
+0.9109	0.9129	0.9109	0.9105	3266
+global_step: 350000
+Acc	Pre	Rec	F1	Samp_num
+0.9149	0.9149	0.9149	0.9149	3266
+global_step: 400000
+Acc	Pre	Rec	F1	Samp_num
+0.9103	0.9116	0.9103	0.9104	3266
+global_step: 450000
+Acc	Pre	Rec	F1	Samp_num
+0.9115	0.9129	0.9115	0.9112	3266
+global_step: 500000
+Acc	Pre	Rec	F1	Samp_num
+0.9198	0.9199	0.9198	0.9198	3266

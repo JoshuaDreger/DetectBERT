@@ -3,12 +3,14 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
+
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import accuracy_score
 
-from dataloader import ApkEmbDataset
+from dataloader_original import ApkEmbDataset
 
 from DetectBERT import DetectBERT
 from lookahead import create_optimizer
@@ -18,12 +20,12 @@ from utils import read_yaml, get_device
 ApkEmbDataset = {'apk': ApkEmbDataset, 'text': None, 'code': None}
 
 class Trainer():
-    def __init__(self, data_type, root_dir, train_list, valid_list, test_list, classifier, device, log_dir, save_dir, cfg):
+    def __init__(self, data_type, emb_dir, train_list, valid_list, test_list, classifier, device, log_dir, save_dir, cfg):
         
         assert data_type in {'apk', 'text', 'code'}
         
         self.data_type = data_type
-        self.root_dir = root_dir
+        self.emb_dir = emb_dir
         self.train_list = train_list
         self.valid_list = valid_list
         self.test_list = test_list
@@ -35,16 +37,27 @@ class Trainer():
 
     def save(self, i, model):
         """ save current model """
+        print(f"Saving model at step {i} to {self.save_dir}")
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
         torch.save(model.state_dict(), # save model object before nn.DataParallel
             os.path.join(self.save_dir, 'model_steps_'+str(i)+'.pt'))
+
+    def pad_collate_fn(self, batch):
+        input_embs = [torch.tensor(x[0]) for x in batch]
+        bag_labels = torch.tensor([x[1] for x in batch])
+        
+        # Pad input_embs to match the length of the longest sequence in the batch
+        input_embs_padded = pad_sequence(input_embs, batch_first=True)
+        
+        return input_embs_padded, bag_labels
     
     def train(self):
+        print("Starting training process...")
 
         Dataset = ApkEmbDataset[self.data_type]
-        dataset = Dataset(self.root_dir, self.train_list)
-        dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+        dataset = Dataset(self.emb_dir, self.train_list)
+        dataloader = DataLoader(dataset, batch_size=16, shuffle=True, collate_fn=self.pad_collate_fn) # for batchsize > 1
 
         criterion = nn.CrossEntropyLoss()
         optimizer = create_optimizer(self.cfg.Optimizer, self.classifier)
@@ -55,12 +68,13 @@ class Trainer():
         metric_file = open(os.path.join(self.log_dir, 'validation_log.txt'), 'w')
 
         for e in range(self.cfg.Train.n_epochs):
+            print(f"Epoch {e+1}/{self.cfg.Train.n_epochs}")
 
             loss_sum = 0. # the sum of iteration losses to get average loss in every epoch
             iter_bar = tqdm(dataloader, desc='Iter (loss=X.XXX)')
             
             for i, batch in enumerate(iter_bar):
-
+                print(f"Processing batch {i+1}")
                 input_embs, bag_label = batch
                 input_embs, bag_label = input_embs.to(self.device), bag_label.to(self.device)
 
@@ -70,6 +84,7 @@ class Trainer():
                 logits = results_dict['logits']
 
                 loss = criterion(logits, bag_label)
+                print(f"Loss for batch {i+1}: {loss.item()}")
                 
                 loss_sum += loss.item()
 
@@ -79,11 +94,13 @@ class Trainer():
                 iter_bar.set_description('Iter (loss=%5.3f)'%loss.item())
                 writer.add_scalars('data',
                                 {'loss': loss.item(),
-                                # 'lr': optimizer.get_lr()[0],
+                                 'learning_rate': optimizer.param_groups[0]['lr'],
+                                 'accuracy': (logits.argmax(dim=1) == bag_label).float().mean().item()
                                 },
                                 global_step)
                 
                 if global_step % self.cfg.Train.save_steps == 0: # save
+                    print(f"Saving model at global step {global_step}")
                     self.save(global_step, self.classifier)
                     self.validation(global_step, metric_file)
 
@@ -98,11 +115,13 @@ class Trainer():
             print('Epoch %d/%d : Average Loss %5.3f'%(e+1, self.cfg.Train.n_epochs, loss_sum/(i+1)))
         self.save(global_step, self.classifier)
         metric_file.close()
+        print("Training process completed.")
     
     def validation(self, global_step, metric_log):
+        print(f"Starting validation at global step {global_step}")
 
         Dataset = ApkEmbDataset[self.data_type]
-        dataset = Dataset(self.root_dir, self.valid_list)
+        dataset = Dataset(self.emb_dir, self.valid_list)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False) 
 
         pre_list = []
@@ -117,26 +136,28 @@ class Trainer():
 
         precision, recall, fbeta_score, _ = precision_recall_fscore_support(gt_list, pre_list, beta=1.0, average='weighted')
         accuracy = accuracy_score(gt_list, pre_list)
-        print('Acc\tPre\tRec\tF1\tSamp_num')
-        print('{:.4f}\t{:.4f}\t{:.4f}\t{:.4f}\t{}'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
+        print(f"Validation results at global step {global_step}: Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}, F1={fbeta_score:.4f}")
         metric_log.write('global_step: '+str(global_step)+'\n')
-        metric_log.write('Acc\tPre\tRec\tF1\tSamp_num\n') 
-        metric_log.write('{:.4f}\t{:.4f}\t{:.4f}\t{:.4f}\t{}\n'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
+        metric_log.write('Acc	Pre	Rec	F1	Samp_num\n') 
+        metric_log.write('{:.4f}	{:.4f}	{:.4f}	{:.4f}	{}\n'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
 
     def evaluation(self, weights=None):
+        print("Starting evaluation...")
 
         if weights is not None:
+            print(f"Loading weights from {weights}")
             self.classifier.load_state_dict(torch.load(weights), strict=True)
     
         Dataset = ApkEmbDataset[self.data_type]
-        dataset = Dataset(self.root_dir, self.test_list)
+        dataset = Dataset(self.emb_dir, self.test_list)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False) 
 
         pre_list = []
         gt_list  = []
         for _, batch in enumerate(tqdm(dataloader)):
             input_embs, bag_label = batch
-            input_embs, bag_label = input_embs.to(self.device), bag_label.to(self.device)
+            input_embs = input_embs.to(self.device)
+            bag_label = bag_label.to(self.device)
 
             pre = self.classifier(data=input_embs)['Y_hat']
             pre_list.extend(pre.tolist())
@@ -148,38 +169,44 @@ class Trainer():
         precision, recall, fbeta_score, _ = precision_recall_fscore_support(gt_list, pre_list, beta=1.0, average='weighted')
         accuracy = accuracy_score(gt_list, pre_list)
         print('Weighted Average:')
-        print('Acc\tPre\tRec\tF1\tSamp_num')
-        print('{:.4f}\t{:.4f}\t{:.4f}\t{:.4f}\t{}'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
+        print('Acc	Pre	Rec	F1	Samp_num')
+        print('{:.4f}	{:.4f}	{:.4f}	{:.4f}	{}'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
         f.write('Weighted Average:\n')
-        f.write('Acc\tPre\tRec\tF1\tSamp_num\n') 
-        f.write('{:.4f}\t{:.4f}\t{:.4f}\t{:.4f}\t{}\n'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
+        f.write('Acc	Pre	Rec	F1	Samp_num\n') 
+        f.write('{:.4f}	{:.4f}	{:.4f}	{:.4f}	{}\n'.format(accuracy, precision, recall, fbeta_score, len(gt_list)))
 
         precision, recall, fbeta_score, support = precision_recall_fscore_support(gt_list, pre_list, beta=1.0)
         print('Metrics on Each Category:')
-        print('  Category\tPre\tRec\tF1\tSamp_num')
-        print('Benignware\t{:.4f}\t{:.4f}\t{:.4f}\t{}'.format(precision[0], recall[0], fbeta_score[0], support[0]))
-        print('   Malware\t{:.4f}\t{:.4f}\t{:.4f}\t{}'.format(precision[1], recall[1], fbeta_score[1], support[1]))
+        print('  Category	Pre	Rec	F1	Samp_num')
+        print('Benignware	{:.4f}	{:.4f}	{:.4f}	{}'.format(precision[0], recall[0], fbeta_score[0], support[0]))
+        print('   Malware	{:.4f}	{:.4f}	{:.4f}	{}'.format(precision[1], recall[1], fbeta_score[1], support[1]))
         f.write('Metrics on Each Category:\n')
-        f.write('  Category\tPre\tRec\tF1\tSamp_num\n')
-        f.write('Benignware\t{:.4f}\t{:.4f}\t{:.4f}\t{}\n'.format(precision[0], recall[0], fbeta_score[0], support[0]))
-        f.write('   Malware\t{:.4f}\t{:.4f}\t{:.4f}\t{}\n'.format(precision[1], recall[1], fbeta_score[1], support[1]))
+        f.write('  Category	Pre	Rec	F1	Samp_num\n')
+        f.write('Benignware	{:.4f}	{:.4f}	{:.4f}	{}\n'.format(precision[0], recall[0], fbeta_score[0], support[0]))
+        f.write('   Malware	{:.4f}	{:.4f}	{:.4f}	{}\n'.format(precision[1], recall[1], fbeta_score[1], support[1]))
         f.close()
+        print("Evaluation completed.")
 
 if __name__ == "__main__":
+
+    print("Initializing training script...")
+    os.nice(19)
+    os.sched_setaffinity(0, set(range(64)))
     
     cfg        = './config.yaml'
     
     cfg = read_yaml(cfg)
 
-    split_idx  = 1
+    split_idx  = 6
+    print(f'running on split {split_idx}')
 
     data_type  = 'apk'  # choose one forom ('apk', 'text', 'code')
-    root_dir   = '../data/data_class'
-    train_list = '../data/apk_splits/train{}.txt'.format(split_idx) 
-    valid_list = '../data/apk_splits/valid{}.txt'.format(split_idx) 
-    test_list  = '../data/apk_splits/test{}.txt'.format(split_idx) 
-    log_dir    = './log/split_{}/{}'.format(split_idx, cfg.Model.aggregation) 
-    save_dir   = './save/split_{}'.format(split_idx) 
+    emb_dir   = '/shares/no-backup/j.dreger/dexray/emb/'
+    train_list = f'../data/apk_splits/{cfg.Master.subset}_txt/train{split_idx}.txt'
+    valid_list = f'../data/apk_splits/{cfg.Master.subset}_txt/valid{split_idx}.txt'
+    test_list  = f'../data/apk_splits/{cfg.Master.subset}_txt/test{split_idx}.txt'
+    log_dir    = f'./log/{cfg.Master.subset}/split_{split_idx}/{cfg.Model.aggregation}'
+    save_dir   = f'./save/{cfg.Master.subset}/split_{split_idx}'
     
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]= str(cfg.Train.device)
@@ -188,7 +215,9 @@ if __name__ == "__main__":
     classifier = DetectBERT(cfg= cfg, n_classes=cfg.Model.catg_num, input_size=cfg.Model.input_len, hidden_size=cfg.Model.hidden_len)
     classifier = classifier.to(device)
 
-    trainer = Trainer(data_type, root_dir, train_list, valid_list, test_list, classifier, device, log_dir, save_dir, cfg)
+    trainer = Trainer(data_type, emb_dir, train_list, valid_list, test_list, classifier, device, log_dir, save_dir, cfg)
+    print("Starting training...")
     trainer.train()
+    print("Starting evaluation...")
     trainer.evaluation()
     # trainer.evaluation(weights='./save/malware_detectin/split_{}/model_steps_2000000.pt'.format(split_idx))
