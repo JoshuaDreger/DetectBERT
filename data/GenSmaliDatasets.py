@@ -123,12 +123,12 @@ def Hash2ApkEmb(hash, tmp_dir, smali_dir, pipeline, hash_dir):
     if osp.exists(save_path):
         print(f"Dataset for hash {hash} already exists at {save_path}, skipping generation.")
         return
-    if not osp.exists(osp.join(hash_dir, hash.upper() + '.apk')):
+    if not osp.exists(osp.join(hash_dir, hash.lower())):
         print(f"APK for hash {hash} not downloaded at {hash_dir}, skipping generation.")
         return
 
     print(f"Processing hash: {hash}")
-    apk_path = osp.join(hash_dir, hash.upper()+'.apk')
+    apk_path = osp.join(hash_dir, hash.lower())
     smali_dir = osp.join(tmp_dir, hash)
     print(f"Disassembling APK at {apk_path}")
     Disassemble(apk_path, smali_dir)
@@ -172,9 +172,10 @@ if __name__ == '__main__':
     parser.add_argument('--max_workers', type=int, default=1, help='Number of worker threads for processing')
     parser.add_argument('--apk_type', type=str, default='goodware', help='Type of data to process (e.g., goodware, malware)')
     parser.add_argument('--dataset', type=str, default='dexray', help='Dataset that should be used')
+    parser.add_argument('--reverse', action='store_true', help='Process hashes in reverse order')
     args = parser.parse_args()
 
-    root_dir = f'/work/j.dreger/data/{args.dataset}/'
+    root_dir = f"/shares/no-backup/j.dreger/{args.dataset}"
     dataset_root = f'/mnt/{args.dataset}'
     apk_list = [[f'{args.dataset}_{args.apk_type}_hashes.txt', args.apk_type]]
     vocab = './vocab.txt'
@@ -186,7 +187,9 @@ if __name__ == '__main__':
 
     for pair in apk_list:
         src_path, data_dir = pair[0], pair[1]
-        hash_list = open(osp.join(root_dir, src_path), 'r').readlines()
+        hash_list = open(osp.join(root_dir, "metadata", src_path), 'r').readlines()
+        if args.reverse:
+            hash_list = hash_list[::-1]  # Reverse the order of hashes
         if args.debug:
             hash_list = hash_list[:1]  # Only process one hash in debug mode
         hash_dir = dataset_root

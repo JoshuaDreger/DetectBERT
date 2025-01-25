@@ -163,6 +163,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu_ids', type=str, default='4', help='Comma-separated list of GPU IDs to use')
     parser.add_argument('--max_workers', type=int, default=1, help='Number of worker threads for processing')
     parser.add_argument('--src_data', type=str, default='goodware', help='Type of data to process (e.g., goodware, malware)')
+    parser.add_argument('--dataset', type=str, default='dexray', help='Dataset that should be used')
     parser.add_argument('--reverse', action='store_true', default=False, help='Process the src_data_list in reverse order if set to True')
 
     args = parser.parse_args()
@@ -171,10 +172,11 @@ if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = os.getenv("CUDA_VISIBLE_DEVICES", args.gpu_ids)
     
-    root_dir = '/work/j.dreger/data/detect_bert/'
+    root_dir = f'/shares/no-backup/j.dreger/{args.dataset}/'
     Bert_model_cfg = './bert_base.json'
-    vocab = './vocab.txt'
     DexBERT_file = './pretrained_dexbert_model_steps_604364.pt'
+    src_data_list = [[f'metadata/{args.dataset}_smooth_{args.src_data}_hashes.txt', args.src_data]]
+    vocab = './vocab.txt'
 
     # Model initialization
     batch_size = 32
@@ -184,10 +186,6 @@ if __name__ == '__main__':
     BertAE.load_state_dict(torch.load(DexBERT_file), strict=False)  # Load pre-trained weights
     BertAE.to(device)  # Move model to device
     BertAE.eval()  # Set model to evaluation mode
-
-    root_dir = '/work/j.dreger/data/detect_bert/'
-    src_data_list = [[f'{args.src_data}_hashes.txt', args.src_data]]
-    vocab = './vocab.txt'
 
     # Tokenizer and preprocessing pipeline setup
     tokenizer = tokenization.FullTokenizer(vocab_file=vocab, do_lower_case=True)
@@ -212,9 +210,11 @@ if __name__ == '__main__':
         if args.reverse:
             hash_list = hash_list[::-1]
         hash_dir = osp.join(root_dir, data_dir)
-        smali_dir = osp.join(root_dir, 'smali_datasets', data_dir)
-        tmp_dir = osp.join(root_dir, 'tmp', data_dir)
-        emb_dir = osp.join(root_dir, 'emb_dir', data_dir)
+        #smali_dir = osp.join("/work/j.dreger/data/detect_bert", 'smali_datasets', data_dir)
+        smali_dir = osp.join(root_dir, 'smali', data_dir)
+        tmp_dir = osp.join("tmp/josh/", 'emb', data_dir)
+        #emb_dir = osp.join("/work/j.dreger/data/detect_bert", 'emb_dir', data_dir)
+        emb_dir = osp.join(root_dir, 'emb', data_dir)
 
         # Create embedding directory if it doesn't exist
         if not os.path.exists(emb_dir):
