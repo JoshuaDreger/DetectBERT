@@ -5,7 +5,7 @@ Model:
     aggregation: "DetectBERT" # "addition", "average", "random", "DetectBERT"
 
 Train:
-    device: 4 # what GPU ID!
+    device: 0 # what GPU ID!
     n_epochs: 20 # same as in paper
     save_steps: 50000
     total_steps: 2500000
@@ -19,4 +19,4 @@ Optimizer:
     weight_decay: 0.00001 # not mentioned in paper
 
 Master:
-    subset: "250125"
+    subset: "250314"

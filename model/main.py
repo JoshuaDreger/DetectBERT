@@ -54,10 +54,10 @@ class Trainer():
     
     def train(self):
         print("Starting training process...")
-
+        print(f"hi Josh \n {self.emb_dir} \n\n {self.train_list}")
         Dataset = ApkEmbDataset[self.data_type]
         dataset = Dataset(self.emb_dir, self.train_list)
-        dataloader = DataLoader(dataset, batch_size=16, shuffle=True, collate_fn=self.pad_collate_fn) # for batchsize > 1
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=True)#, collate_fn=self.pad_collate_fn) # for batchsize > 1
 
         criterion = nn.CrossEntropyLoss()
         optimizer = create_optimizer(self.cfg.Optimizer, self.classifier)
@@ -197,16 +197,17 @@ if __name__ == "__main__":
     
     cfg = read_yaml(cfg)
 
-    split_idx  = 6
+    split_idx  = "random"
+    dataset = 'dexray'
     print(f'running on split {split_idx}')
 
     data_type  = 'apk'  # choose one forom ('apk', 'text', 'code')
-    emb_dir   = '/shares/no-backup/j.dreger/dexray/emb/'
-    train_list = f'../data/apk_splits/{cfg.Master.subset}_txt/train{split_idx}.txt'
-    valid_list = f'../data/apk_splits/{cfg.Master.subset}_txt/valid{split_idx}.txt'
-    test_list  = f'../data/apk_splits/{cfg.Master.subset}_txt/test{split_idx}.txt'
-    log_dir    = f'./log/{cfg.Master.subset}/split_{split_idx}/{cfg.Model.aggregation}'
-    save_dir   = f'./save/{cfg.Master.subset}/split_{split_idx}'
+    emb_dir   = f'/shares/no-backup/j.dreger/{dataset}/emb/'
+    train_list = f'../data/apk_splits/{cfg.Master.subset}_txt/{dataset}/train_{split_idx}.txt'
+    valid_list = f'../data/apk_splits/{cfg.Master.subset}_txt/{dataset}/test_{split_idx}.txt'
+    test_list  = f'../data/apk_splits/{cfg.Master.subset}_txt/{dataset}/test_{split_idx}.txt'
+    log_dir    = f'./log/{cfg.Master.subset}/{dataset}/split_{split_idx}/{cfg.Model.aggregation}'
+    save_dir   = f'./save/{cfg.Master.subset}/{dataset}/split_{split_idx}'
     
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]= str(cfg.Train.device)

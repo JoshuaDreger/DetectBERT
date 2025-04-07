@@ -1,0 +1,7 @@
+Weighted Average:
+Acc	Pre	Rec	F1	Samp_num
+0.8177	0.8246	0.8177	0.8177	3499
+Metrics on Each Category:
+  Category	Pre	Rec	F1	Samp_num
+Benignware	0.7675	0.8738	0.8172	1632
+   Malware	0.8745	0.7686	0.8181	1867
