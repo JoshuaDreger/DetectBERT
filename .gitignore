@@ -1,2 +1,1 @@
-data/pretrained_dexbert_model_steps_604364.pt
-data/baksmali-2.5.2.jar
+data/*.pt
